@@ -1,21 +1,53 @@
 
 function m
-	dim sql,cs,li,gtuid,accountId,results,testLinks,status,allowTestTool,showRefreshMessage, userId, orgId
+	dim sql,cs,li,gtuid,accountId,results,testLinks,status,allowTestTool,showRefreshMessage, userId, orgId,TestToolPassword
+	dim toolPanelTestId,toolPanelTestName,rqs, toolPanelTestAddonid
+	'
 	set cs = cp.csNew()
 	showRefreshMessage = false 
-	'
-	if (cp.doc.getText( "button" ) = "enable")and(cp.doc.getText( "testValue" ) = "1234") then
-		call cp.visit.setProperty( "allowTestTool", "1" )
-	end if
+	rqs = cp.doc.refreshQueryString
 	'
 	allowTestTool = cp.visit.getBoolean( "allowTestTool" )
 	if not allowTestTool then
-		m = m & "<div><br>Enter 1234 to enable test tools</div>"
-		m = m & "<div>" & cp.html.inputText( "testValue", "" ) & "&nbsp;" & cp.html.button( "button", "enable" ) & "</div>"
+		TestToolPassword = cp.file.read( cp.site.PhysicalInstallPath & "\config\TestToolPassword.txt")
+		if ( TestToolPassword = "" ) then
+			m = m & "The TestToolPassword.txt is missing or empty. If this is a test site, ask a developer to populate the password in the file [config\TestToolPassword.txt] in the Contensive installation folder."
+		else
+			if (cp.doc.getText( "button" ) = "enable")  then
+				if (cp.doc.getText( "TestToolPassword" ) = TestToolPassword ) then
+					allowTestTool = true
+					call cp.visit.setProperty( "allowTestTool", "1" )
+				else
+					m = m & "The password you entered is not correct. The password should be stored in the file [config\TestToolPassword.txt] in the Contensive installation folder."
+				end if
+			end if
+		end if
+		m = m & "<div><br>Enter the TestToolPassword to enable test tools</div>"
+		m = m & "<div>" & cp.html.inputText( "TestToolPassword", "" ) & "&nbsp;" & cp.html.button( "button", "enable" ) & "</div>"
 		m = cp.html.form( m )
-	else
+	end if
+	if allowTestTool then
 		m = ""
 		results = ""
+		'
+		' run tool panel tests
+		'
+		toolPanelTestId = cp.doc.getInteger( "toolPanelTestId" )
+		if (toolPanelTestId>0) then
+			if cs.open( "Tool Panel Tests", "id=" & toolPanelTestId ) then
+				toolPanelTestAddonid = cs.getInteger( "addonid" )
+				toolPanelTestAddonName = cs.getText( "name" )
+				if ( toolPanelTestAddonid>0 ) then
+					call cp.doc.setproperty( "runFromToolPanel", "1" )
+					results = results & "<div>Result=" & cp.utils.executeAddon( toolPanelTestAddonId ) & "</div>"
+					call cp.doc.setproperty( "runFromToolPanel", "0" )
+				end if
+			end if
+			call cs.close()
+		end if
+		'
+		' old hardcoded tests ----- to be converted to tool panel tests
+		'
 		gtuid = cp.doc.getInteger( "gtuid" )
 		if gtuid<>0 then
 			call cp.user.loginById( gtuid )
@@ -45,34 +77,8 @@ function m
 			orgid = createOrganization( cp, "contensive" )
 		end if
 		'
-		if (cp.doc.getBoolean("testResetEcommerce")) then
-			results = results & "<div>resetting all ecommerce to test accounts</div>"
-			results = results & "<div>deleting accounts...</div>"
-			call cp.db.executesql( "delete from abaccounts" )
-			results = results & "<div>deleting items...</div>"
-			call cp.db.executesql( "delete from items" )
-			results = results & "<div>creating new data...</div>"
-			call createAccount( cp, "Account-A-House", 1, 0 )
-			call createAccount( cp, "Account-B-Bill-Ship-On-Payment", 3, 0 )
-			call createAccount( cp, "Account-C-Bill-Ship-Now", 4, 0 )
-			call createAccount( cp, "Account-D-OnDemand-With-Card", 2, 0 )
-			call createItem( cp, "rock", "", 1, 0, 0 )
-			call createItem( cp, "meeting", "", 2, 0, 0 )
-			call createItem( cp, "subscription A, group A, weekly", "Group A", 3, 2, 7 )
-		end if
+		' display test results
 		'
-		if (cp.doc.getInteger("verifyEcommerceAccount")>0) then
-			accountId = getAccountId()
-			if ( accountId = 0 ) then
-				Call cp.Doc.SetProperty("method", "createAccount")
-				Call cp.Doc.SetProperty("accountName", "TestAccountUser" & cp.user.id)
-				Call cp.Doc.SetProperty("userId", cp.user.id)
-				accountId = cp.utils.encodeInteger( cp.Utils.ExecuteAddon("ecommerce methods") )
-				call cp.db.executeSql( "update ccmembers set accountid=" & accountId & " where id=" & cp.user.id )
-				results = results & "<div>Adding ecommerce account, result=[" & accountId & "]</div>"
-			end if
-			results = results & "<div>Verified ecommerce account, account=[" & accountId & "]</div>"
-		end if
 		if ( results<>"" ) then
 			m = m & "<br><h3>Results</h3>" & results
 			if showRefreshMessage then
@@ -107,22 +113,33 @@ function m
 		end if
 		m = m & "<ul><h3>Status</h3>" & status & "</ul>"
 		'
-		' test links
+		' test links ----- to be converted to tool panel tests
 		'
 		testLinks = testLinks & "<li><a id=""testGoHome"" href=""/"">Public Home</a></li>"
 		testLinks = testLinks & "<li><a id=""testGoAdmin"" href=""/admin"">Admin Home</a></li>"
 		testLinks = testLinks & "<li><a id=""testLogout"" href=""?method=logout"">Logout</a></li>"
 		testLinks = testLinks & "<li><a id=""testLoginCurrentUser"" href=""?testLoginCurrentUser=1"">Authenticate you to current user.</a></li>"
 		testLinks = testLinks & "<li><a id=""testVerifyEcommerceAccount"" href=""?verifyEcommerceAccount=1"">Verify ecommerce account for this user (user.accountId)</a></li>"
-		testLinks = testLinks & "<li><a id=""testResetUsers"" href=""?testResetUsers=1"">Reset users -- delete all and create new root/contensive.</a></li>"
-		testLinks = testLinks & "<li><a id=""testResetOrganizations"" href=""?testResetOrganizations=1"">Reset organizations -- delete all and create new Contensive.</a></li>"
-		testLinks = testLinks & "<li><a id=""testResetEcommerce"" href=""?testResetEcommerce=1"">Reset ecommerce -- delete all and reload test records.</a></li>"
+		testLinks = testLinks & "<li><a id=""testResetUsers"" href=""?testResetUsers=1"">Reset users -- delete all people and create a new root/contensive.</a></li>"
+		testLinks = testLinks & "<li><a id=""testResetOrganizations"" href=""?testResetOrganizations=1"">Reset organizations -- delete all organizations and create new Contensive.</a></li>"
+		'
+		' list tool panel tests
+		'
+		if ( cs.open( "tool panel tests" )) then
+			do
+				toolPanelTestId = cs.getInteger( "id" )
+				toolPanelTestName = cs.getText( "name" )
+				testLinks = testLinks & "<li><a id=""toolPanelTestId" & toolPanelTestId & """ href=""?" & rqs & "&toolPanelTestId=" & toolPanelTestId & """>" & toolPanelTestName & "</a></li>"
+				cs.gonext()
+			loop while cs.ok()
+		end if
+		call cs.close()
 		m = m & "<ul><h3>Test Links</h3>" & testLinks & "</ul>"
 		'
 		' assemble the body
 		'
 	end if
-		m = "<div class=""groupLoginTool""><h2>Test Tool Panel</h2><div>(NEVER use on production sites!)</div>" & m & "</div>"
+	m = "<div class=""groupLoginTool""><h2>Test Tool Panel</h2><div>(NEVER use on production sites!)</div>" & m & "</div>"
 end function
 '
 function getAccountId()
